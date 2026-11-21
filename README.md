@@ -45,6 +45,18 @@ El remitente debe ser la cuenta autenticada en Gmail. El formulario guarda cada 
 - Las imágenes del catálogo se sirven desde Wikimedia Commons. Cada ficha enlaza a su archivo original y muestra autoría y licencia; verifica la atribución antes de reutilizarlas fuera del sitio.
 - El acceso de desarrollo no es un sistema de identidad empresarial. Antes de usar datos reales, añade controles de acceso, políticas de privacidad, copias de seguridad y un almacenamiento administrado acorde con la normativa local.
 
+## Publicar una versión estática en GitHub Pages
+
+GitHub Pages solo sirve archivos estáticos: no ejecuta la API, SQLite, el panel de administración ni el envío del formulario. El flujo incluido en `.github/workflows/deploy-pages.yml` compila y publica automáticamente una versión de solo lectura al subir cambios a la rama `main`. El catálogo usa los productos de ejemplo y el formulario explica que requiere un servidor.
+
+1. Crea un repositorio en GitHub y sube el proyecto a la rama `main`. No incluyas `.env` ni datos personales.
+2. En el repositorio, abre **Settings → Pages** y selecciona **GitHub Actions** como fuente de publicación.
+3. Abre la pestaña **Actions** y espera a que termine correctamente el flujo **Deploy to GitHub Pages**.
+4. En **Settings → Pages**, abre el enlace del sitio publicado. Para un repositorio de proyecto, la dirección suele ser `https://TU-USUARIO.github.io/NOMBRE-DEL-REPOSITORIO/`.
+5. Cada nuevo envío a `main` inicia una nueva publicación. También puedes iniciar el flujo manualmente desde **Actions → Deploy to GitHub Pages → Run workflow**.
+
+El flujo adapta automáticamente la ruta base al nombre del repositorio y genera una página de respaldo para que las rutas internas funcionen al abrirlas directamente. Si necesitas el panel, guardar consultas/productos o enviar el formulario, despliega el proyecto completo en un hosting que ejecute Node.js, tal como se describe arriba.
+
 ## Alcance del asistente
 
 “Guía Fungi” es una demo local de respuestas automáticas basadas en reglas, sin modelo generativo ni envío de preguntas a servicios externos. No ofrece diagnóstico, tratamiento ni asesoría legal. Para incorporar un modelo de IA real, integra un proveedor desde el backend y define límites de privacidad, seguridad y revisión humana; nunca expongas una clave de API en el navegador.

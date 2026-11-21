@@ -14,6 +14,10 @@ const NAV_ITEMS = [
   { path: '/contacto', label: 'Contacto' },
 ]
 
+const BASE_PATH = import.meta.env.BASE_URL === '/'
+  ? ''
+  : import.meta.env.BASE_URL.replace(/\/$/, '')
+const IS_STATIC_SITE = import.meta.env.VITE_STATIC_SITE === 'true'
 const CATALOG_COLLECTIONS = ['Todo', 'Clásicos', 'Especiales']
 const formatPrice = (price) => new Intl.NumberFormat('es-US', {
   style: 'currency',
@@ -21,10 +25,20 @@ const formatPrice = (price) => new Intl.NumberFormat('es-US', {
   maximumFractionDigits: 2,
 }).format(price)
 
+function getRoutePath(pathname) {
+  const route = pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) : pathname
+  const normalizedRoute = route.startsWith('/') ? route : `/${route}`
+  return normalizedRoute.length > 1 ? normalizedRoute.replace(/\/+$/, '') : normalizedRoute
+}
+
+function getAppUrl(route) {
+  return `${BASE_PATH}${route}` || '/'
+}
+
 function AppLink({ to, onNavigate, children, ...props }) {
   return (
     <a
-      href={to}
+      href={getAppUrl(to)}
       {...props}
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -364,39 +378,45 @@ function AboutPage({ onNavigate }) {
   )
 }
 
-function ContactPage({ onSubmit, contactMessage, setContactMessage, contactError, contactStatus }) {
+function ContactPage({ onSubmit, contactMessage, setContactMessage, contactError, contactStatus, isStaticSite }) {
   return (
     <section className="contact-section section-wrap section-pad page-section">
       <div className="contact-copy">
         <span className="eyebrow">Estamos para conversar</span>
         <h1>¿Te ayudamos a encontrar tu <em>próximo comienzo?</em></h1>
-        <p>Cuéntanos qué te gustaría aprender. El mensaje queda en el panel del equipo y se envía a kg109867@gmail.com.</p>
+        <p>{isStaticSite
+          ? 'Cuéntanos qué te gustaría aprender. El formulario estará disponible cuando este sitio se conecte a un servidor.'
+          : 'Cuéntanos qué te gustaría aprender. El mensaje queda en el panel del equipo y se envía a kg109867@gmail.com.'}</p>
         <div className="contact-aside"><span className="contact-aside__icon">✳</span><span>Un espacio amable para tus preguntas.<br /><strong>Sin prisa, con curiosidad.</strong></span></div>
       </div>
-      <form className="contact-form" onSubmit={onSubmit}>
-        <label htmlFor="contact-name">Tu nombre</label>
-        <input id="contact-name" name="name" autoComplete="name" placeholder="¿Cómo te llamas?" required maxLength={100} />
-        <label htmlFor="contact-email">Tu correo</label>
-        <input id="contact-email" name="email" type="email" autoComplete="email" placeholder="hola@ejemplo.com" required maxLength={160} />
-        <label htmlFor="contact-message">¿Qué tienes en mente?</label>
-        <textarea id="contact-message" name="message" rows="4" placeholder="Escribe tu mensaje..." required maxLength={1000} value={contactMessage} onChange={(event) => setContactMessage(event.target.value)} />
-        <button className="button button--primary" type="submit">Enviar mensaje <span aria-hidden="true">↗</span></button>
-        <p className="form-hint">Tus datos se usan para responder a esta consulta y se almacenan en el servidor de este proyecto.</p>
-        {contactError && <p className="form-message form-message--error" role="alert">{contactError}</p>}
-        {contactStatus && <p className="form-message" role="status">{contactStatus}</p>}
-      </form>
+      {isStaticSite ? (
+        <p className="form-message" role="status">El formulario de contacto estará disponible cuando este sitio se conecte a un servidor.</p>
+      ) : (
+        <form className="contact-form" onSubmit={onSubmit}>
+          <label htmlFor="contact-name">Tu nombre</label>
+          <input id="contact-name" name="name" autoComplete="name" placeholder="¿Cómo te llamas?" required maxLength={100} />
+          <label htmlFor="contact-email">Tu correo</label>
+          <input id="contact-email" name="email" type="email" autoComplete="email" placeholder="hola@ejemplo.com" required maxLength={160} />
+          <label htmlFor="contact-message">¿Qué tienes en mente?</label>
+          <textarea id="contact-message" name="message" rows="4" placeholder="Escribe tu mensaje..." required maxLength={1000} value={contactMessage} onChange={(event) => setContactMessage(event.target.value)} />
+          <button className="button button--primary" type="submit">Enviar mensaje <span aria-hidden="true">↗</span></button>
+          <p className="form-hint">Tus datos se usan para responder a esta consulta y se almacenan en el servidor de este proyecto.</p>
+          {contactError && <p className="form-message form-message--error" role="alert">{contactError}</p>}
+          {contactStatus && <p className="form-message" role="status">{contactStatus}</p>}
+        </form>
+      )}
     </section>
   )
 }
 
 function App() {
-  const [pathname, setPathname] = useState(() => window.location.pathname)
+  const [pathname, setPathname] = useState(() => getRoutePath(window.location.pathname))
   const [products, setProducts] = useState(INITIAL_PRODUCTS)
   const [cart, setCart] = useState([])
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [isAdminOpen, setIsAdminOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(!IS_STATIC_SITE)
   const [persistenceError, setPersistenceError] = useState('')
   const [contactStatus, setContactStatus] = useState('')
   const [contactError, setContactError] = useState('')
@@ -404,12 +424,14 @@ function App() {
   const route = NAV_ITEMS.some((item) => item.path === pathname) ? pathname : '/'
 
   useEffect(() => {
-    const onPopState = () => setPathname(window.location.pathname)
+    const onPopState = () => setPathname(getRoutePath(window.location.pathname))
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   useEffect(() => {
+    if (IS_STATIC_SITE) return
+
     let isCurrent = true
     fetch('/api/products')
       .then(async (response) => {
@@ -436,7 +458,8 @@ function App() {
   const formattedCartTotal = formatPrice(cartTotal)
 
   function navigate(to) {
-    if (window.location.pathname !== to) window.history.pushState({}, '', to)
+    const appUrl = getAppUrl(to)
+    if (window.location.pathname !== appUrl) window.history.pushState({}, '', appUrl)
     setPathname(to)
     setIsMenuOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -511,7 +534,7 @@ function App() {
   else if (route === '/aprende') page = <LearnPage />
   else if (route === '/talleres') page = <WorkshopsPage onNavigate={navigate} />
   else if (route === '/nosotros') page = <AboutPage onNavigate={navigate} />
-  else if (route === '/contacto') page = <ContactPage onSubmit={submitContact} contactMessage={contactMessage} setContactMessage={setContactMessage} contactError={contactError} contactStatus={contactStatus} />
+  else if (route === '/contacto') page = <ContactPage onSubmit={submitContact} contactMessage={contactMessage} setContactMessage={setContactMessage} contactError={contactError} contactStatus={contactStatus} isStaticSite={IS_STATIC_SITE} />
   else page = <HomePage products={products} onAdd={addToCart} onNavigate={navigate} />
 
   return (
@@ -541,7 +564,7 @@ function App() {
       </header>
       <main>
         {isLoading && <p className="loading-banner" role="status">Cargando catálogo…</p>}
-        {persistenceError && <p className="inline-alert section-wrap" role="alert">{persistenceError}</p>}
+        {!IS_STATIC_SITE && persistenceError && <p className="inline-alert section-wrap" role="alert">{persistenceError}</p>}
         {page}
       </main>
       <footer className="site-footer">
@@ -552,7 +575,7 @@ function App() {
             <AppLink to="/catalogo" onNavigate={navigate}>Catálogo</AppLink>
             <AppLink to="/aprende" onNavigate={navigate}>Guía responsable</AppLink>
             <AppLink to="/contacto" onNavigate={navigate}>Contacto</AppLink>
-            <button className="footer-admin" type="button" onClick={() => setIsAdminOpen(true)}>Administración</button>
+            {!IS_STATIC_SITE && <button className="footer-admin" type="button" onClick={() => setIsAdminOpen(true)}>Administración</button>}
           </nav>
         </div>
         <div className="site-footer__bottom section-wrap">
@@ -592,7 +615,7 @@ function App() {
           </section>
         </div>
       )}
-      {isAdminOpen && (
+      {!IS_STATIC_SITE && isAdminOpen && (
         <AdminPanel products={products} onClose={() => setIsAdminOpen(false)} onAddProduct={addProduct} onRemoveProduct={removeProduct} persistenceError={persistenceError} />
       )}
     </div>

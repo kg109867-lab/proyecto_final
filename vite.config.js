@@ -6,9 +6,15 @@ import { env } from 'node:process'
 import { createApiHandler } from './server/api.mjs'
 
 const rootDirectory = dirname(fileURLToPath(import.meta.url))
+const repositoryName = env.GITHUB_REPOSITORY?.split('/')[1]
+const pagesBase = env.GITHUB_ACTIONS === 'true'
+  && repositoryName
+  && !repositoryName.endsWith('.github.io')
+  ? `/${repositoryName}/`
+  : '/'
 
 export default defineConfig({
-  base: './',
+  base: env.VITE_BASE_PATH || pagesBase,
   plugins: [
     react(),
     {
