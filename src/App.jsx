@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { apiUrl } from './api.js'
 import AdminPanel from './components/AdminPanel.jsx'
 import ChatAssistant from './components/ChatAssistant.jsx'
 import INITIAL_PRODUCTS from './data/products.js'
@@ -17,7 +18,7 @@ const NAV_ITEMS = [
 const BASE_PATH = import.meta.env.BASE_URL === '/'
   ? ''
   : import.meta.env.BASE_URL.replace(/\/$/, '')
-const IS_STATIC_SITE = import.meta.env.VITE_STATIC_SITE === 'true'
+const IS_STATIC_SITE = import.meta.env.VITE_STATIC_SITE === 'true' && !import.meta.env.VITE_API_BASE_URL
 const CATALOG_COLLECTIONS = ['Todo', 'Clásicos', 'Especiales']
 const formatPrice = (price) => new Intl.NumberFormat('es-US', {
   style: 'currency',
@@ -433,7 +434,7 @@ function App() {
     if (IS_STATIC_SITE) return
 
     let isCurrent = true
-    fetch('/api/products')
+    fetch(apiUrl('/api/products'))
       .then(async (response) => {
         if (!response.ok) throw new Error('El catálogo no respondió correctamente.')
         const data = await response.json()
@@ -465,11 +466,11 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  async function addProduct(product) {
+  async function addProduct(product, token) {
     try {
-      const response = await fetch('/api/admin/products', {
+      const response = await fetch(apiUrl('/api/admin/products'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(product),
       })
       const data = await response.json()
@@ -483,9 +484,12 @@ function App() {
     }
   }
 
-  async function removeProduct(id) {
+  async function removeProduct(id, token) {
     try {
-      const response = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const response = await fetch(apiUrl(`/api/admin/products/${encodeURIComponent(id)}`), {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'No se pudo eliminar el producto.')
       setProducts((currentProducts) => currentProducts.filter((product) => product.id !== id))
@@ -512,7 +516,7 @@ function App() {
     const formData = new FormData(event.currentTarget)
     const form = event.currentTarget
     try {
-      const response = await fetch('/api/contact', {
+      const response = await fetch(apiUrl('/api/contact'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: formData.get('name'), email: formData.get('email'), message: formData.get('message') }),

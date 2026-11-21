@@ -2,7 +2,6 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { openDatabase } from './database.mjs'
 import { createContactEmailSender } from './email.mjs'
 
-const SESSION_COOKIE = 'mundo_fungi_session'
 const SESSION_DURATION = 8 * 60 * 60 * 1000
 const MAX_BODY_BYTES = 16 * 1024
 const sessions = new Map()
@@ -17,28 +16,33 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload))
 }
 
-function readCookie(request, name) {
-  const cookies = request.headers.cookie?.split(';') ?? []
-  const cookie = cookies.find((part) => part.trim().startsWith(`${name}=`))
-  return cookie ? decodeURIComponent(cookie.trim().slice(name.length + 1)) : ''
-}
-
 function timingSafeStringEqual(left, right) {
   const leftBuffer = Buffer.from(left)
   const rightBuffer = Buffer.from(right)
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer)
 }
 
-function isSameOrigin(request) {
+function getAllowedOrigin(request, frontendOrigin) {
   const origin = request.headers.origin
-  if (!origin) return true
+  if (!origin) return ''
 
   try {
     const expectedHost = request.headers['x-forwarded-host'] || request.headers.host
-    return new URL(origin).host === expectedHost
+    const requestOrigin = new URL(`${request.headers['x-forwarded-proto'] || 'http'}://${expectedHost}`).origin
+    const normalizedOrigin = new URL(origin).origin
+    if (normalizedOrigin === requestOrigin || normalizedOrigin === frontendOrigin) return normalizedOrigin
   } catch {
-    return false
+    return null
   }
+  return null
+}
+
+function setCorsHeaders(response, origin) {
+  if (!origin) return
+  response.setHeader('Access-Control-Allow-Origin', origin)
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  response.setHeader('Vary', 'Origin')
 }
 
 async function readBody(request) {
@@ -74,16 +78,8 @@ function getAdminCredentials(allowDemoCredentials) {
   return { username, password }
 }
 
-function setSessionCookie(response, request, token) {
-  const isSecure = request.headers['x-forwarded-proto'] === 'https'
-  response.setHeader(
-    'Set-Cookie',
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DURATION / 1000}${isSecure ? '; Secure' : ''}`,
-  )
-}
-
 function requireAdmin(request, response) {
-  const token = readCookie(request, SESSION_COOKIE)
+  const token = request.headers.authorization?.match(/^Bearer (.+)$/i)?.[1]
   const expiresAt = sessions.get(token)
   if (!token || !expiresAt || expiresAt <= Date.now()) {
     if (token) sessions.delete(token)
@@ -119,11 +115,12 @@ function recordFailedLogin(request) {
 }
 
 export function createApiHandler({
-  dataDirectory,
+  database = openDatabase(),
   allowDemoCredentials = false,
   sendContactEmail = createContactEmailSender(),
 } = {}) {
-  const database = openDatabase(dataDirectory)
+  const configuredOrigin = process.env.FRONTEND_ORIGIN?.trim()
+  const frontendOrigin = configuredOrigin ? new URL(configuredOrigin).origin : ''
 
   const apiHandler = async function handleApiRequest(request, response, next) {
     const url = new URL(request.url, 'http://localhost')
@@ -132,33 +129,28 @@ export function createApiHandler({
       return
     }
 
-    if (!isSameOrigin(request)) {
+    const allowedOrigin = getAllowedOrigin(request, frontendOrigin)
+    if (allowedOrigin === null) {
       sendJson(response, 403, { error: 'Origen de solicitud no permitido.' })
+      return
+    }
+    setCorsHeaders(response, allowedOrigin)
+
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204)
+      response.end()
       return
     }
 
     try {
       if (request.method === 'GET' && url.pathname === '/api/health') {
+        await database.ping()
         sendJson(response, 200, { status: 'ok' })
         return
       }
 
       if (request.method === 'GET' && url.pathname === '/api/products') {
-        const products = database.prepare(`
-          SELECT
-            id, name, category, description, price, icon, tone, label,
-            scientific_name AS scientificName,
-            details, flavor, uses,
-            pack_size AS packSize,
-            collection,
-            image,
-            image_alt AS imageAlt,
-            photo_credit AS photoCredit,
-            photo_source AS photoSource,
-            photo_license AS photoLicense,
-            photo_license_url AS photoLicenseUrl
-          FROM products ORDER BY rowid
-        `).all()
+        const products = await database.getProducts()
         sendJson(response, 200, products)
         return
       }
@@ -181,16 +173,7 @@ export function createApiHandler({
           createdAt: new Date().toISOString(),
           read: false,
         }
-        database.prepare(`
-          INSERT INTO contact_messages (id, name, email, message, created_at, read)
-          VALUES (?, ?, ?, ?, ?, 0)
-        `).run(
-          contactMessage.id,
-          contactMessage.name,
-          contactMessage.email,
-          contactMessage.message,
-          contactMessage.createdAt,
-        )
+        await database.insertContactMessage(contactMessage)
         if (!sendContactEmail) {
           sendJson(response, 503, {
             error: 'El mensaje quedó guardado, pero falta configurar el envío de correo en el servidor.',
@@ -238,18 +221,13 @@ export function createApiHandler({
 
         const token = randomUUID()
         sessions.set(token, Date.now() + SESSION_DURATION)
-        setSessionCookie(response, request, token)
-        sendJson(response, 200, { authenticated: true })
+        sendJson(response, 200, { authenticated: true, token })
         return
       }
 
       if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
-        const token = readCookie(request, SESSION_COOKIE)
+        const token = request.headers.authorization?.match(/^Bearer (.+)$/i)?.[1]
         if (token) sessions.delete(token)
-        response.setHeader(
-          'Set-Cookie',
-          `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`,
-        )
         sendJson(response, 200, { authenticated: false })
         return
       }
@@ -258,10 +236,7 @@ export function createApiHandler({
         if (!requireAdmin(request, response)) return
 
         if (request.method === 'GET' && url.pathname === '/api/admin/messages') {
-          const messages = database.prepare(`
-            SELECT id, name, email, message, created_at AS createdAt, read
-            FROM contact_messages ORDER BY created_at DESC
-          `).all()
+          const messages = await database.getContactMessages()
           sendJson(response, 200, messages)
           return
         }
@@ -300,35 +275,7 @@ export function createApiHandler({
             photoLicense: '',
             photoLicenseUrl: '',
           }
-          database.prepare(`
-            INSERT INTO products (
-              id, name, category, description, price, icon, tone, label,
-              scientific_name, details, flavor, uses, pack_size, collection, image,
-              image_alt, photo_credit, photo_source, photo_license, photo_license_url
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            product.id,
-            product.name,
-            product.category,
-            product.description,
-            product.price,
-            product.icon,
-            product.tone,
-            product.label,
-            product.scientificName,
-            product.details,
-            product.flavor,
-            product.uses,
-            product.packSize,
-            product.collection,
-            product.image,
-            product.imageAlt,
-            product.photoCredit,
-            product.photoSource,
-            product.photoLicense,
-            product.photoLicenseUrl,
-          )
+          await database.insertProduct(product)
           sendJson(response, 201, product)
           return
         }
@@ -336,8 +283,8 @@ export function createApiHandler({
         const deleteMatch = url.pathname.match(/^\/api\/admin\/products\/([^/]+)$/)
         if (request.method === 'DELETE' && deleteMatch) {
           const id = decodeURIComponent(deleteMatch[1])
-          const result = database.prepare('DELETE FROM products WHERE id = ?').run(id)
-          if (!result.changes) {
+          const deletedCount = await database.deleteProduct(id)
+          if (!deletedCount) {
             sendJson(response, 404, { error: 'No se encontró ese producto.' })
             return
           }

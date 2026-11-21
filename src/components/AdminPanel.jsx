@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { apiUrl } from '../api.js'
 
 function AdminPanel({ products, onClose, onAddProduct, onRemoveProduct, persistenceError }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [accessToken, setAccessToken] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -12,22 +14,28 @@ function AdminPanel({ products, onClose, onAddProduct, onRemoveProduct, persiste
     event.preventDefault()
     setLoginError('')
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'No se pudo iniciar sesión.')
+      if (!response.ok || !data.token) throw new Error(data.error || 'No se pudo iniciar sesión.')
 
-      const messagesResponse = await fetch('/api/admin/messages')
+      const messagesResponse = await fetch(apiUrl('/api/admin/messages'), {
+        headers: { Authorization: `Bearer ${data.token}` },
+      })
       const savedMessages = await messagesResponse.json()
       if (!messagesResponse.ok) {
-        await fetch('/api/auth/logout', { method: 'POST' })
+        await fetch(apiUrl('/api/auth/logout'), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${data.token}` },
+        })
         throw new Error(savedMessages.error || 'No se pudieron cargar las consultas.')
       }
 
       setMessages(savedMessages)
+      setAccessToken(data.token)
       setIsAuthenticated(true)
     } catch (error) {
       setLoginError(error.message || 'No se pudo conectar con el servidor.')
@@ -49,7 +57,7 @@ function AdminPanel({ products, onClose, onAddProduct, onRemoveProduct, persiste
     }
 
     try {
-      await onAddProduct({ name, category, price, description })
+      await onAddProduct({ name, category, price, description }, accessToken)
       setProductError('')
       form.reset()
     } catch (error) {
@@ -59,7 +67,7 @@ function AdminPanel({ products, onClose, onAddProduct, onRemoveProduct, persiste
 
   async function removeProduct(id) {
     try {
-      await onRemoveProduct(id)
+      await onRemoveProduct(id, accessToken)
     } catch (error) {
       setProductError(error.message || 'No se pudo eliminar el producto.')
     }
@@ -67,9 +75,13 @@ function AdminPanel({ products, onClose, onAddProduct, onRemoveProduct, persiste
 
   async function logOut() {
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      const response = await fetch(apiUrl('/api/auth/logout'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
       if (!response.ok) throw new Error('No se pudo cerrar la sesión.')
       setIsAuthenticated(false)
+      setAccessToken('')
       setUsername('')
       setPassword('')
     } catch (error) {

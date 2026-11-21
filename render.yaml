@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: mundo-fungi-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: mundo_fungi
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

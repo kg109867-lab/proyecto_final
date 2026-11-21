@@ -13,7 +13,7 @@ npm run dev
 
 Abre la URL que muestra Vite. El catálogo inicial incluye diez variedades comestibles con precios de ejemplo en dólares estadounidenses. En desarrollo, el acceso temporal al panel es `admin` / `mundo2026`; no reutilices estas credenciales en un despliegue.
 
-Los mensajes de contacto y los cambios del catálogo se guardan en SQLite, en `data/mundo-fungi.sqlite`. Los mensajes también se envían a `CONTACT_TO_EMAIL` por SMTP cuando el servidor tiene credenciales configuradas. Esa carpeta está excluida de Git porque puede contener datos personales.
+La API requiere una instancia MongoDB. Copia `.env.example` a `.env`, agrega tu URI de MongoDB Atlas a `MONGODB_URI` y configura `MONGODB_DB`. Al conectar por primera vez, inserta las diez fichas iniciales si aún no existen; no reemplaza productos que ya estén en la colección. Los mensajes de contacto y cambios del catálogo también se guardan en MongoDB.
 
 ## Compilar y ejecutar
 
@@ -23,39 +23,49 @@ npm run build
 npm start
 ```
 
-El servidor sirve la web compilada y la API en el mismo origen, por defecto en `http://localhost:4173`. Para un despliegue, configura en el entorno del servidor `ADMIN_USERNAME` y `ADMIN_PASSWORD` con valores propios, largos y únicos. Puedes copiar `.env.example` a `.env` para pruebas locales; no publiques ese archivo ni sus credenciales. En producción, el inicio de sesión queda deshabilitado si faltan esas variables.
+El servidor sirve la web compilada y la API en el mismo origen, por defecto en `http://localhost:4173`. Configura `MONGODB_URI`, `MONGODB_DB`, `ADMIN_USERNAME` y `ADMIN_PASSWORD` en el entorno del servidor. Usa credenciales propias, largas y únicas; no publiques `.env` ni sus valores. En producción, el inicio de sesión queda deshabilitado si faltan las variables de administración.
 
-La API ofrece `GET /api/health`, `GET /api/products`, `POST /api/contact` y rutas privadas de administración para iniciar/cerrar sesión, revisar consultas y modificar el catálogo. Los productos y las consultas se guardan en SQLite. Las sesiones usan una cookie `HttpOnly` y expiran; se invalidan al reiniciar el proceso.
+La API ofrece `GET /api/health`, `GET /api/products`, `POST /api/contact` y rutas privadas de administración para iniciar/cerrar sesión, revisar consultas y modificar el catálogo. Las sesiones expiran y se invalidan al reiniciar el proceso. El inicio de sesión devuelve un token que se mantiene solo en memoria en el navegador; nunca se guarda en `localStorage`.
+
+La base SQLite local de versiones anteriores no se migra automáticamente. Si contiene consultas o productos que necesites conservar, expórtalos e impórtalos antes de cambiar de base.
 
 ## Configurar el correo de contacto
 
 1. Activa la verificación en dos pasos de la cuenta de Google que enviará los mensajes.
 2. Crea una contraseña de aplicación en [la configuración de contraseñas de aplicación de Google](https://myaccount.google.com/apppasswords).
 3. Copia `.env.example` a `.env` y configura `SMTP_USER` con esa cuenta y `SMTP_APP_PASSWORD` con la contraseña de aplicación, sin espacios. No uses la contraseña normal de Gmail ni compartas la contraseña de aplicación.
-4. Mantén `CONTACT_TO_EMAIL=kg109867@gmail.com` para recibir ahí las consultas y reinicia el servidor.
+4. Configura `CONTACT_TO_EMAIL` con la dirección que recibirá las consultas y reinicia el servidor.
 
 El remitente debe ser la cuenta autenticada en Gmail. El formulario guarda cada consulta aunque el SMTP no esté configurado o falle; en ese caso muestra un error y la consulta permanece en el panel para que no se pierda. Nunca publiques `.env` ni incluyas sus valores en Git.
 
-## Antes de publicar
+## Publicar con GitHub Pages, Render y MongoDB Atlas
 
-- Publica el proyecto en un hosting que ejecute Node.js y sirva la API, no solo archivos estáticos. GitHub Pages por sí solo no ejecuta el backend.
-- Configura las variables de entorno de administración en el proveedor y usa HTTPS.
-- Configura almacenamiento persistente para `data/`; algunos hostings borran archivos locales al reiniciar o volver a desplegar.
-- Revisa los textos, moneda, precios, disponibilidad, privacidad y datos de contacto para tu emprendimiento real. Verifica que el SMTP entregue correctamente los mensajes antes de usar el formulario en producción.
-- Las imágenes del catálogo se sirven desde Wikimedia Commons. Cada ficha enlaza a su archivo original y muestra autoría y licencia; verifica la atribución antes de reutilizarlas fuera del sitio.
-- El acceso de desarrollo no es un sistema de identidad empresarial. Antes de usar datos reales, añade controles de acceso, políticas de privacidad, copias de seguridad y un almacenamiento administrado acorde con la normativa local.
+GitHub Pages publica el frontend; no ejecuta Node.js. Para que el catálogo dinámico, el formulario y el panel funcionen, despliega la API en un servicio Node.js como Render y conecta esa API a MongoDB Atlas. `render.yaml` contiene la configuración inicial del servicio.
 
-## Publicar una versión estática en GitHub Pages
+### 1. Crear MongoDB Atlas
 
-GitHub Pages solo sirve archivos estáticos: no ejecuta la API, SQLite, el panel de administración ni el envío del formulario. El flujo incluido en `.github/workflows/deploy-pages.yml` compila y publica automáticamente una versión de solo lectura al subir cambios a la rama `main`. El catálogo usa los productos de ejemplo y el formulario explica que requiere un servidor.
+1. Crea un clúster en [MongoDB Atlas](https://www.mongodb.com/atlas/database) y un usuario de base de datos con contraseña propia.
+2. En **Network Access**, permite conexiones desde Render. Para pruebas puedes permitir `0.0.0.0/0`, pero usa una contraseña robusta y limita las conexiones si tu plan/proveedor ofrece una IP de salida fija.
+3. Copia la URI de conexión y reemplaza usuario, contraseña y host. Si la contraseña contiene caracteres especiales, codifícala para URL.
 
-1. Crea un repositorio en GitHub y sube el proyecto a la rama `main`. No incluyas `.env` ni datos personales.
-2. En el repositorio, abre **Settings → Pages** y selecciona **GitHub Actions** como fuente de publicación.
-3. Abre la pestaña **Actions** y espera a que termine correctamente el flujo **Deploy to GitHub Pages**.
-4. En **Settings → Pages**, abre el enlace del sitio publicado. Para un repositorio de proyecto, la dirección suele ser `https://TU-USUARIO.github.io/NOMBRE-DEL-REPOSITORIO/`.
-5. Cada nuevo envío a `main` inicia una nueva publicación. También puedes iniciar el flujo manualmente desde **Actions → Deploy to GitHub Pages → Run workflow**.
+### 2. Desplegar la API en Render
 
-El flujo adapta automáticamente la ruta base al nombre del repositorio y genera una página de respaldo para que las rutas internas funcionen al abrirlas directamente. Si necesitas el panel, guardar consultas/productos o enviar el formulario, despliega el proyecto completo en un hosting que ejecute Node.js, tal como se describe arriba.
+1. Sube el proyecto a un repositorio de GitHub.
+2. En Render, crea un **Blueprint** desde ese repositorio y acepta `render.yaml`, o crea un servicio web Node.js con `npm ci && npm run build` como comando de compilación y `npm start` como comando de inicio.
+3. Configura estas variables en Render: `MONGODB_URI`, `MONGODB_DB` (`mundo_fungi`), `ADMIN_USERNAME`, `ADMIN_PASSWORD` y `FRONTEND_ORIGIN`. Esta última debe ser el origen de Pages, por ejemplo `https://TU_USUARIO.github.io` (sin la ruta del repositorio).
+4. Si quieres que el formulario envíe correos, configura también las variables `SMTP_*` y `CONTACT_TO_EMAIL` descritas arriba.
+5. Despliega y comprueba `https://TU_API.onrender.com/api/health`; debe responder `{"status":"ok"}`.
+
+### 3. Publicar el frontend en GitHub Pages
+
+1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente.
+2. Abre **Settings → Secrets and variables → Actions → Variables** y crea `VITE_API_BASE_URL` con la URL de tu API, por ejemplo `https://TU_API.onrender.com` (sin `/` al final).
+3. Sube los cambios a la rama `main`. El flujo `.github/workflows/deploy-pages.yml` compilará y publicará el sitio. Si ya había corrido antes de agregar la variable, vuelve a ejecutarlo en **Actions → Deploy to GitHub Pages → Run workflow**.
+4. Abre el enlace indicado en **Settings → Pages**, normalmente `https://TU_USUARIO.github.io/TU_REPOSITORIO/`.
+
+Sin `VITE_API_BASE_URL`, Pages presenta el catálogo de ejemplo y oculta las funciones que requieren backend. Al configurarlo, la web se conecta a Render; el servidor solo acepta solicitudes desde el origen definido en `FRONTEND_ORIGIN`.
+
+Antes de usarlo con clientes, revisa textos, moneda, precios, privacidad y datos de contacto, y prueba el formulario y el panel. Las imágenes del catálogo se sirven desde Wikimedia Commons; cada ficha enlaza al archivo original y muestra su autoría y licencia.
 
 ## Alcance del asistente
 

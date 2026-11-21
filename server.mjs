@@ -6,7 +6,6 @@ import { createApiHandler } from './server/api.mjs'
 
 const rootDirectory = fileURLToPath(new URL('.', import.meta.url))
 const distributionDirectory = resolve(rootDirectory, 'dist')
-const dataDirectory = resolve(process.env.DATA_DIRECTORY || resolve(rootDirectory, 'data'))
 const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -18,7 +17,7 @@ const mimeTypes = {
   '.webp': 'image/webp',
 }
 
-const apiHandler = createApiHandler({ dataDirectory })
+const apiHandler = createApiHandler()
 
 async function serveStatic(request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
